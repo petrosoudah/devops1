@@ -4,7 +4,7 @@
 
 ## 1. Clone the repo
 
-## git clone https://github.com/ayat93a/book_shop.git
+## git clone https://github.com/petrosoudah/devops1
 ## cd book_shop/book-shop
 
 
