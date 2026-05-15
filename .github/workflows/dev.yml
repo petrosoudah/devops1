@@ -23,6 +23,8 @@ jobs:
           mkdir -p artifacts build_package
           # freeze deps and collect static before making the artifact
           python -m pip install --upgrade pip
+          python -m venv .venv
+          . .venv/bin/activate
           pip install -r requirements.txt
           SECRET_KEY=dummy ALLOWED_HOSTS=localhost POSTGRES_DB=bookshop_db POSTGRES_USER=bookshop_user POSTGRES_PASSWORD=dummy python manage.py collectstatic --noinput
           rsync -av \
@@ -31,6 +33,7 @@ jobs:
             --exclude='artifacts' \
             --exclude='build_package' \
             --exclude='dist' \
+            --exclude='.venv' \
             --exclude='*.tar.gz' \
             --exclude='db.sqlite3' \
             ./ build_package/
