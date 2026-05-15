@@ -1,0 +1,44 @@
+name: prod promotion-only deploy
+
+on:
+  push:
+    branches: [prod]
+
+jobs:
+  promote-existing-image:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout compose file
+        uses: actions/checkout@v4
+
+      - name: Copy compose file to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER || 'ubuntu' }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: "~/book_shop/prod"
+
+      - name: Deploy selected version to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER || 'ubuntu' }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/book_shop/prod
+            docker login -u '${{ secrets.DOCKERHUB_USERNAME }}' -p '${{ secrets.DOCKERHUB_TOKEN }}'
+            # prod only pulls the version chosen in github variables
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/${{ vars.IMAGE_NAME }}:${{ vars.IMAGE_VERSION }}
+            # no build here, prod only promotes an existing image
+            IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/${{ vars.IMAGE_NAME }}:${{ vars.IMAGE_VERSION }} \
+            APP_PORT=8003 \
+            POSTGRES_PORT=5435 \
+            SECRET_KEY='${{ secrets.SECRET_KEY }}' \
+            POSTGRES_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}' \
+            ALLOWED_HOSTS='${{ vars.EC2_HOST }},localhost,127.0.0.1' \
+            docker compose -p bookshop_prod up -d --remove-orphans

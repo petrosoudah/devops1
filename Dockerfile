@@ -1,14 +1,17 @@
 FROM python:3.11-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+ARG APP_ARTIFACT
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
+# the image is built from the pipeline artifact, not directly from repo files
+COPY ${APP_ARTIFACT} /tmp/app.tar.gz
+RUN tar -xzf /tmp/app.tar.gz -C /app \
+    && rm /tmp/app.tar.gz \
+    && if [ -f requirements.lock ]; then pip install --no-cache-dir -r requirements.lock; else pip install --no-cache-dir -r requirements.txt; fi
 
 EXPOSE 8000
 

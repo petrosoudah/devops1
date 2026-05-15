@@ -1,0 +1,77 @@
+name: dev artifact-first deploy
+
+on:
+  push:
+    branches: [dev]
+
+permissions:
+  contents: write
+
+jobs:
+  build-artifact-commit-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout dev branch
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Create build artifact
+        run: |
+          mkdir -p artifacts build_package
+          # freeze deps and collect static before making the artifact
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          SECRET_KEY=dummy ALLOWED_HOSTS=localhost POSTGRES_DB=bookshop_db POSTGRES_USER=bookshop_user POSTGRES_PASSWORD=dummy python manage.py collectstatic --noinput
+          rsync -av \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='artifacts' \
+            --exclude='build_package' \
+            --exclude='dist' \
+            --exclude='*.tar.gz' \
+            --exclude='db.sqlite3' \
+            ./ build_package/
+          pip freeze > build_package/requirements.lock
+          # every dev build gets its own artifact file
+          tar -czf artifacts/app-${{ github.sha }}.tar.gz -C build_package .
+
+      - name: Commit artifact to dev branch
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "ci: add dev artifact ${{ github.sha }}"
+          file_pattern: artifacts/app-${{ github.sha }}.tar.gz
+          branch: dev
+
+      - name: Copy deployment files to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER || 'ubuntu' }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "Dockerfile,docker-compose.yml,artifacts/app-${{ github.sha }}.tar.gz"
+          target: "~/book_shop/dev"
+
+      - name: Build image from committed artifact and deploy on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER || 'ubuntu' }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/book_shop/dev
+            # dev builds the image from the committed artifact
+            docker build \
+              --build-arg APP_ARTIFACT=artifacts/app-${{ github.sha }}.tar.gz \
+              -t book-shop-dev:${{ github.sha }} .
+            # dev uses its own ports so it does not conflict with test/prod
+            IMAGE_NAME=book-shop-dev:${{ github.sha }} \
+            APP_PORT=8001 \
+            POSTGRES_PORT=5433 \
+            SECRET_KEY='${{ secrets.SECRET_KEY }}' \
+            POSTGRES_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}' \
+            ALLOWED_HOSTS='${{ vars.EC2_HOST }},localhost,127.0.0.1' \
+            docker compose -p bookshop_dev up -d --remove-orphans

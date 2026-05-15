@@ -2,20 +2,29 @@ services:
 
   db:
     image: postgres:15
-    env_file:
-      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bookshop_db}
+      POSTGRES_USER: ${POSTGRES_USER:-bookshop_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT}:5432"
     networks:
       - bookshop_net
 
   backend:
-    build: .
+    # pipeline sets this image tag for dev, test, or prod
+    image: ${IMAGE_NAME}
     restart: on-failure
     ports:
-      - "8000:8000"
-    env_file:
-      - .env
+      - "${APP_PORT}:8000"
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      POSTGRES_DB: ${POSTGRES_DB:-bookshop_db}
+      POSTGRES_USER: ${POSTGRES_USER:-bookshop_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     depends_on:
       - db
     networks:
@@ -25,6 +34,7 @@ services:
              python manage.py collectstatic --noinput &&
              gunicorn book_shop.wsgi:application --bind 0.0.0.0:8000"
 volumes:
+  # compose project name keeps dev/test/prod data separate on ec2
   postgres_data:
 
 networks:
